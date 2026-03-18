@@ -78,6 +78,25 @@ wss.on('connection', (ws) => {
       )
     }
 
+    // --- SPELL ---
+    if (data.type === 'spellCast') {
+      if (!ws.room) return
+      const room = rooms.get(ws.room)
+      broadcast(
+        room,
+        {
+          type: 'spellCast',
+          id: ws.id,
+          spell: data.spell,
+          x: data.x,
+          y: data.y,
+          dirX: data.dirX,
+          dirY: data.dirY,
+        },
+        ws
+      )
+    }
+
     if (data.type === 'move') {
       if (!ws.room) return
       ws.x = data.x ?? ws.x

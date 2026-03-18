@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { SpellRecogniser } from '../spells/SpellRecogniser'
 import { NetworkManager } from '../network/NetworkManager'
+import { SpellManager } from '../spells/SpellManager'
 
 interface Point {
   x: number
@@ -23,6 +24,7 @@ const SERVER_URL = isLocal
 export class GameScene extends Phaser.Scene {
   private recogniser: SpellRecogniser
   private network: NetworkManager = new NetworkManager()
+  private spellManager!: SpellManager
 
   // Player
   private player!: Phaser.GameObjects.Arc
@@ -217,6 +219,9 @@ export class GameScene extends Phaser.Scene {
       setTimeout(() => this.scale.refresh(), 200)
     })
 
+    // ── Spell manager ──
+    this.spellManager = new SpellManager(this)
+
     // ── Networking ──
     this.registerNetworkHandlers()
 
@@ -259,6 +264,17 @@ export class GameScene extends Phaser.Scene {
         sprite.destroy()
         this.otherPlayers.delete(data.id)
       }
+    })
+
+    // Someone cast a spell
+    this.network.on('spellCast', (data) => {
+      this.spellManager.castSpell(
+        data.spell,
+        data.x,
+        data.y,
+        data.dirX,
+        data.dirY
+      )
     })
 
     this.network.on('error', (data) => {
@@ -417,10 +433,39 @@ export class GameScene extends Phaser.Scene {
 
     if (result.name === 'Unknown') {
       this.resultText.setText('Unknown').setColor('#fb7185')
+      this.scoreText.setText(`Confidence: ${(result.score * 100).toFixed(0)}%`)
     } else {
       this.resultText.setText(result.name).setColor('#2dd4bf')
+      this.scoreText.setText(`Confidence: ${(result.score * 100).toFixed(0)}%`)
+
+      // Use joystick direction if active, otherwise default to facing direction
+      const dirX = this.joystickActive
+        ? this.joystickVector.x
+        : this.facing === 'right'
+          ? 1
+          : -1
+      const dirY = this.joystickActive ? this.joystickVector.y : 0
+
+      // Fire the spell locally
+      this.spellManager.castSpell(
+        result.name,
+        this.player.x,
+        this.player.y,
+        dirX,
+        dirY
+      )
+
+      // Broadcast to other players
+      if (this.network.connected) {
+        this.network.sendSpell(
+          result.name,
+          this.player.x,
+          this.player.y,
+          dirX,
+          dirY
+        )
+      }
     }
-    this.scoreText.setText(`Confidence: ${(result.score * 100).toFixed(0)}%`)
 
     this.time.delayedCall(1500, () => this.drawGraphics.clear())
   }

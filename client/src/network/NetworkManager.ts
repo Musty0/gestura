@@ -61,6 +61,17 @@ export class NetworkManager {
     }
   }
 
+  sendSpell(spell: string, x: number, y: number, dirX: number, dirY: number) {
+    this.send({
+      type: 'spellCast',
+      spell,
+      x: Math.round(x),
+      y: Math.round(y),
+      dirX,
+      dirY,
+    })
+  }
+
   // Call this every frame from GameScene.update()
   // Only actually sends if 50ms have passed since last send
   sendMove(x: number, y: number, facing: string) {
