@@ -21,7 +21,8 @@
   "dependencies": {
     "fflate": "^0.8.2",
     "pako": "^2.1.0",
-    "phaser": "^3.90.0"
+    "phaser": "^3.90.0",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",

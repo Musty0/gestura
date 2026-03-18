@@ -38,7 +38,6 @@ wss.on('connection', (ws) => {
       return
     }
 
-    // --- JOIN ---
     if (data.type === 'join') {
       ws.name = (data.name || 'Player').toString().slice(0, 20)
       ws.x = data.x ?? 2800
@@ -56,7 +55,6 @@ wss.on('connection', (ws) => {
       room.add(ws)
       ws.room = roomId
 
-      // Send the new player the current state of everyone already in the room
       ws.send(
         JSON.stringify({
           type: 'init',
@@ -65,7 +63,6 @@ wss.on('connection', (ws) => {
         })
       )
 
-      // Tell everyone else a new player arrived
       broadcast(
         room,
         {
@@ -81,7 +78,6 @@ wss.on('connection', (ws) => {
       )
     }
 
-    // --- MOVE ---
     if (data.type === 'move') {
       if (!ws.room) return
       ws.x = data.x ?? ws.x
@@ -99,7 +95,7 @@ wss.on('connection', (ws) => {
           facing: ws.facing,
         },
         ws
-      ) // exclude sender — they already know where they are
+      )
     }
   })
 

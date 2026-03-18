@@ -14,11 +14,11 @@ const JOYSTICK_RADIUS = 65
 const JOYSTICK_THUMB_RADIUS = 28
 const CAMERA_LERP = 0.1
 
-// Change this to your Oracle Cloud IP when testing on device
-const SERVER_URL =
-  window.location.hostname === 'localhost'
-    ? 'ws://localhost:3001'
-    : 'ws://YOUR_ORACLE_IP:3001'
+const isLocal = window.location.hostname === 'localhost'
+
+const SERVER_URL = isLocal
+  ? 'ws://localhost:3001'
+  : `ws://${window.location.hostname}:3001`
 
 export class GameScene extends Phaser.Scene {
   private recogniser: SpellRecogniser
@@ -170,6 +170,16 @@ export class GameScene extends Phaser.Scene {
     mapFinal.createLayer('Houses', allTilesets, 0, 0)
     mapFinal.createLayer('Decorations', allTilesets, 0, 0)
 
+    // Debug grid — remove when map is in
+    const grid = this.add.graphics()
+    grid.lineStyle(1, 0x333333, 1)
+    for (let x = 0; x <= WORLD_WIDTH; x += 200) {
+      grid.lineBetween(x, 0, x, WORLD_HEIGHT)
+    }
+    for (let y = 0; y <= WORLD_HEIGHT; y += 200) {
+      grid.lineBetween(0, y, WORLD_WIDTH, y)
+    }
+
     // ── Local player ──
     this.player = this.add.circle(
       WORLD_WIDTH / 2,
@@ -295,18 +305,20 @@ export class GameScene extends Phaser.Scene {
     if (!this.joystickActive) return
 
     const dt = delta / 1000
-    this.player.x = Phaser.Math.Clamp(
+    const newX = Phaser.Math.Clamp(
       this.player.x + this.joystickVector.x * PLAYER_SPEED * dt,
       0,
       WORLD_WIDTH
     )
-    this.player.y = Phaser.Math.Clamp(
+    const newY = Phaser.Math.Clamp(
       this.player.y + this.joystickVector.y * PLAYER_SPEED * dt,
       0,
       WORLD_HEIGHT
     )
 
-    // Derive facing from joystick direction
+    this.player.x = newX
+    this.player.y = newY
+
     if (Math.abs(this.joystickVector.x) > 0.1) {
       this.facing = this.joystickVector.x > 0 ? 'right' : 'left'
     }
