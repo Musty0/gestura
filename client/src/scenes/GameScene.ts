@@ -170,16 +170,6 @@ export class GameScene extends Phaser.Scene {
     mapFinal.createLayer('Houses', allTilesets, 0, 0)
     mapFinal.createLayer('Decorations', allTilesets, 0, 0)
 
-    // Debug grid — remove when map is in
-    const grid = this.add.graphics()
-    grid.lineStyle(1, 0x333333, 1)
-    for (let x = 0; x <= WORLD_WIDTH; x += 200) {
-      grid.lineBetween(x, 0, x, WORLD_HEIGHT)
-    }
-    for (let y = 0; y <= WORLD_HEIGHT; y += 200) {
-      grid.lineBetween(0, y, WORLD_WIDTH, y)
-    }
-
     // ── Local player ──
     this.player = this.add.circle(
       WORLD_WIDTH / 2,
