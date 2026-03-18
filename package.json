@@ -1,0 +1,32 @@
+{
+  "name": "gestura",
+  "version": "1.0.0",
+  "description": "Gesture-based spellcasting battle royale",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Musty0/gestura.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Musty0/gestura/issues"
+  },
+  "homepage": "https://github.com/Musty0/gestura#readme",
+  "dependencies": {
+    "fflate": "^0.8.2",
+    "pako": "^2.1.0",
+    "phaser": "^3.90.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/pako": "^2.0.4",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.0"
+  }
+}

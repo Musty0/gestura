@@ -1,0 +1,9 @@
+{
+  "name": "Gestura",
+  "short_name": "Gestura",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#000000",
+  "theme_color": "#1a1a2e",
+  "start_url": "/"
+}
