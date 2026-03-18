@@ -2,7 +2,8 @@ import Phaser from 'phaser'
 import { SpellRecogniser } from '../spells/SpellRecogniser'
 import { NetworkManager } from '../network/NetworkManager'
 import { SpellManager } from '../spells/SpellManager'
-import { HUD } from '../ui/Hud'
+import { HUD } from '../ui/HUD'
+import { PLAYER_NAME, ROOM_CODE, IS_CREATE } from '../main'
 
 interface Point {
   x: number
@@ -24,7 +25,7 @@ const SERVER_URL = isLocal
 
 export class GameScene extends Phaser.Scene {
   private recogniser: SpellRecogniser
-  private network: NetworkManager = new NetworkManager()
+  network: NetworkManager = new NetworkManager()
   private spellManager!: SpellManager
   private myId: string = ''
   private myHp: number = 100
@@ -57,7 +58,11 @@ export class GameScene extends Phaser.Scene {
   // UI
   private resultText!: Phaser.GameObjects.Text
   private scoreText!: Phaser.GameObjects.Text
-  private playerName: string = 'Player'
+  private playerName: string = PLAYER_NAME
+  private roomCode: string = ROOM_CODE
+  private isCreate: boolean = IS_CREATE
+  private isHost: boolean = false
+  private gameState: 'waiting' | 'playing' = 'waiting'
 
   private activeSpells: string[] = [
     'Fireball',
@@ -253,7 +258,15 @@ export class GameScene extends Phaser.Scene {
 
     try {
       await this.network.connect(SERVER_URL)
-      this.network.join('Player', this.player.x, this.player.y)
+      // If we already have a room code saved, rejoin instead of creating a new one
+      const savedCode = sessionStorage.getItem('gestura_room')
+      if (savedCode) {
+        this.network.joinRoom(this.playerName, savedCode)
+      } else if (this.isCreate) {
+        this.network.createRoom(this.playerName)
+      } else {
+        this.network.joinRoom(this.playerName, this.roomCode)
+      }
     } catch {
       console.warn('Could not connect to server — running offline')
     }
@@ -263,17 +276,42 @@ export class GameScene extends Phaser.Scene {
 
   private registerNetworkHandlers() {
     // Server sends this to us on join — full snapshot of everyone already in the room
-    this.network.on('init', (data) => {
+    // Room created (we are host)
+    this.network.on('roomCreated', (data) => {
       this.myId = data.yourId
+      this.isHost = true
+      sessionStorage.setItem('gestura_room', data.roomCode)
+      // Update URL so sharing it lets others join this room
+      window.history.replaceState(
+        {},
+        '',
+        `game.html?name=${encodeURIComponent(this.playerName)}&room=${data.roomCode}`
+      )
+      this.hud.setRoomCode(data.roomCode)
+      this.hud.setPlayers(data.players, this.myId)
+      this.hud.setCanStart(false)
+    })
+
+    // Room joined (we are not host, or host rejoining)
+    this.network.on('roomJoined', (data) => {
+      this.myId = data.yourId
+      this.isHost = data.isHost
+      sessionStorage.setItem('gestura_room', data.roomCode)
+      this.hud.setRoomCode(data.roomCode)
+      this.hud.setPlayers(data.players, this.myId)
+      this.hud.setCanStart(data.canStart && this.isHost)
+      // Spawn all existing players
       for (const p of data.players) {
-        if (p.id === data.yourId) continue // that's us
+        if (p.id === this.myId) continue
         this.spawnOtherPlayer(p.id, p.x, p.y, p.name)
       }
     })
 
-    // Someone new joined after us
+    // Someone new joined
     this.network.on('playerJoined', (data) => {
       this.spawnOtherPlayer(data.id, data.x, data.y, data.name)
+      this.hud.setCanStart(data.canStart && this.isHost)
+      this.hud.setPlayers(data.players, this.myId)
     })
 
     // Someone moved
@@ -291,6 +329,10 @@ export class GameScene extends Phaser.Scene {
         sprite.destroy()
         this.otherPlayers.delete(data.id)
         this.hud.removeNameTag(data.id)
+      }
+      if (this.gameState === 'waiting') {
+        this.hud.setCanStart(data.canStart && this.isHost)
+        this.hud.setPlayers(data.players, this.myId)
       }
     })
 
@@ -351,8 +393,56 @@ export class GameScene extends Phaser.Scene {
       }
     })
 
+    // Host changed
+    this.network.on('hostChanged', (data) => {
+      if (data.newHostId === this.myId) {
+        this.isHost = true
+        this.hud.setCanStart(true)
+      }
+    })
+
+    // Countdown tick
+    this.network.on('countdown', (data) => {
+      this.hud.showCountdown(data.count)
+    })
+
+    // Game starting — teleport to spawn point
+    this.network.on('gameStart', (data) => {
+      this.gameState = 'playing'
+      sessionStorage.removeItem('gestura_room')
+      const mySpawn = data.spawnAssignments[this.myId]
+      if (mySpawn) {
+        this.player.x = mySpawn.x
+        this.player.y = mySpawn.y
+      }
+      // Update other players' positions to their spawns
+      for (const p of data.players) {
+        if (p.id === this.myId) continue
+        const sprite = this.otherPlayers.get(p.id)
+        if (sprite) {
+          sprite.x = p.x
+          sprite.y = p.y
+        }
+      }
+      this.hud.hideCountdown()
+      this.hud.hideLobby()
+      this.hud.setHealth(100)
+      this.myHp = 100
+    })
+
     this.network.on('error', (data) => {
       console.warn('Server error:', data.msg)
+      if (data.msg === 'Room not found') {
+        sessionStorage.removeItem('gestura_room')
+        if (this.isCreate) {
+          this.network.createRoom(this.playerName)
+        } else {
+          this.network.joinRoom(this.playerName, this.roomCode)
+        }
+      } else if (data.msg === 'Name already taken in this room') {
+        sessionStorage.removeItem('gestura_room')
+        window.location.href = `index.html?error=name_taken`
+      }
     })
 
     this.network.on('disconnect', () => {

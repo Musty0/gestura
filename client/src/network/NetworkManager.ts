@@ -91,8 +91,16 @@ export class NetworkManager {
     this.send({ type: 'move', x: Math.round(x), y: Math.round(y), facing })
   }
 
-  join(name: string, x: number, y: number) {
-    this.send({ type: 'join', name, x, y })
+  createRoom(name: string) {
+    this.send({ type: 'createRoom', name })
+  }
+
+  joinRoom(name: string, roomCode: string) {
+    this.send({ type: 'joinRoom', name, roomCode })
+  }
+
+  startGame() {
+    this.send({ type: 'startGame' })
   }
 
   get connected(): boolean {
