@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { SpellRecogniser } from '../spells/SpellRecogniser'
 import { NetworkManager } from '../network/NetworkManager'
 import { SpellManager } from '../spells/SpellManager'
+import { HUD } from '../ui/Hud'
 
 interface Point {
   x: number
@@ -25,6 +26,9 @@ export class GameScene extends Phaser.Scene {
   private recogniser: SpellRecogniser
   private network: NetworkManager = new NetworkManager()
   private spellManager!: SpellManager
+  private myId: string = ''
+  private myHp: number = 100
+  private hud!: HUD
 
   // Player
   private player!: Phaser.GameObjects.Arc
@@ -39,6 +43,10 @@ export class GameScene extends Phaser.Scene {
   private joystickPointerId: number = -1
   private joystickOrigin: Point = { x: 0, y: 0 }
   private joystickVector: Point = { x: 0, y: 0 }
+  private castDirX: number = 1
+  private castDirY: number = 0
+  private lastDirX: number = 1
+  private lastDirY: number = 0
 
   // Drawing (right half only)
   private drawPointerId: number = -1
@@ -49,6 +57,7 @@ export class GameScene extends Phaser.Scene {
   // UI
   private resultText!: Phaser.GameObjects.Text
   private scoreText!: Phaser.GameObjects.Text
+  private playerName: string = 'Player'
 
   private activeSpells: string[] = [
     'Fireball',
@@ -221,6 +230,23 @@ export class GameScene extends Phaser.Scene {
 
     // ── Spell manager ──
     this.spellManager = new SpellManager(this)
+    this.spellManager.setOtherPlayers(this.otherPlayers)
+    this.spellManager.setHitCallback((spell, hitX, hitY) => {
+      // Find which player was hit
+      for (const [id, sprite] of this.otherPlayers) {
+        const dx = sprite.x - hitX
+        const dy = sprite.y - hitY
+        if (Math.sqrt(dx * dx + dy * dy) < 40) {
+          this.network.sendHit(spell, id, hitX, hitY)
+          break
+        }
+      }
+    })
+
+    // ── HUD ──
+    this.hud = new HUD(this)
+    this.hud.setSpells(['Fireball', 'FrostBolt'])
+    this.hud.addLocalNameTag(this.playerName, this.player)
 
     // ── Networking ──
     this.registerNetworkHandlers()
@@ -238,15 +264,16 @@ export class GameScene extends Phaser.Scene {
   private registerNetworkHandlers() {
     // Server sends this to us on join — full snapshot of everyone already in the room
     this.network.on('init', (data) => {
+      this.myId = data.yourId
       for (const p of data.players) {
         if (p.id === data.yourId) continue // that's us
-        this.spawnOtherPlayer(p.id, p.x, p.y)
+        this.spawnOtherPlayer(p.id, p.x, p.y, p.name)
       }
     })
 
     // Someone new joined after us
     this.network.on('playerJoined', (data) => {
-      this.spawnOtherPlayer(data.id, data.x, data.y)
+      this.spawnOtherPlayer(data.id, data.x, data.y, data.name)
     })
 
     // Someone moved
@@ -263,6 +290,7 @@ export class GameScene extends Phaser.Scene {
       if (sprite) {
         sprite.destroy()
         this.otherPlayers.delete(data.id)
+        this.hud.removeNameTag(data.id)
       }
     })
 
@@ -277,6 +305,52 @@ export class GameScene extends Phaser.Scene {
       )
     })
 
+    // Someone took damage
+    this.network.on('playerDamaged', (data) => {
+      // Spawn damage number at hit position
+      const isMe = data.targetId === this.myId
+      this.spellManager.spawnDamageNumber(
+        data.hitX,
+        data.hitY,
+        data.damage,
+        isMe
+      )
+
+      if (isMe) {
+        // Update my health bar
+        this.myHp = data.hp
+        this.hud.setHealth(this.myHp)
+      }
+    })
+
+    // Someone was eliminated
+    this.network.on('playerEliminated', (data) => {
+      if (data.targetId === this.myId) {
+        // I died — show message
+        this.resultText.setText('You died!').setColor('#ff4444')
+        this.scoreText.setText(
+          `Killed by ${data.attackerName} with ${data.spell}`
+        )
+      } else {
+        // Someone else died — remove their sprite
+        const sprite = this.otherPlayers.get(data.targetId)
+        if (sprite) {
+          sprite.destroy()
+          this.otherPlayers.delete(data.targetId)
+          this.hud.removeNameTag(data.targetId)
+        }
+        // Show kill feed message briefly
+        this.resultText
+          .setText(`${data.targetName} eliminated!`)
+          .setColor('#ffcc00')
+        this.scoreText.setText(`by ${data.attackerName} — ${data.spell}`)
+        this.time.delayedCall(2000, () => {
+          this.resultText.setText('')
+          this.scoreText.setText('')
+        })
+      }
+    })
+
     this.network.on('error', (data) => {
       console.warn('Server error:', data.msg)
     })
@@ -286,11 +360,16 @@ export class GameScene extends Phaser.Scene {
     })
   }
 
-  private spawnOtherPlayer(id: string, x: number, y: number) {
+  private spawnOtherPlayer(
+    id: string,
+    x: number,
+    y: number,
+    name: string = 'Player'
+  ) {
     if (this.otherPlayers.has(id)) return
-    // Different colour so you can tell them apart from yourself
     const sprite = this.add.circle(x, y, 20, 0xf87171).setDepth(5)
     this.otherPlayers.set(id, sprite)
+    this.hud.addNameTag(id, name, sprite)
   }
 
   // ─── Update ───────────────────────────────────────────────────────────────
@@ -303,6 +382,7 @@ export class GameScene extends Phaser.Scene {
     if (this.network.connected) {
       this.network.sendMove(this.player.x, this.player.y, this.facing)
     }
+    this.hud.updateNameTags(this.otherPlayers, this.player, this.playerName)
   }
 
   // ─── Player ───────────────────────────────────────────────────────────────
@@ -327,6 +407,14 @@ export class GameScene extends Phaser.Scene {
 
     if (Math.abs(this.joystickVector.x) > 0.1) {
       this.facing = this.joystickVector.x > 0 ? 'right' : 'left'
+    }
+    // Always store last known movement direction
+    const mag = Math.sqrt(
+      this.joystickVector.x ** 2 + this.joystickVector.y ** 2
+    )
+    if (mag > 0.1) {
+      this.lastDirX = this.joystickVector.x
+      this.lastDirY = this.joystickVector.y
     }
   }
 
@@ -367,6 +455,20 @@ export class GameScene extends Phaser.Scene {
         this.drawGraphics.clear()
         this.resultText.setText('')
         this.scoreText.setText('')
+
+        // Snapshot direction at the moment drawing starts
+        const mag = Math.sqrt(
+          this.joystickVector.x ** 2 + this.joystickVector.y ** 2
+        )
+        if (mag > 0.1) {
+          // Joystick still active — use current vector
+          this.castDirX = this.joystickVector.x
+          this.castDirY = this.joystickVector.y
+        } else {
+          // Joystick released — use last known direction
+          this.castDirX = this.lastDirX
+          this.castDirY = this.lastDirY
+        }
       }
     }
   }
@@ -438,21 +540,17 @@ export class GameScene extends Phaser.Scene {
       this.resultText.setText(result.name).setColor('#2dd4bf')
       this.scoreText.setText(`Confidence: ${(result.score * 100).toFixed(0)}%`)
 
-      // Use joystick direction if active, otherwise default to facing direction
-      const dirX = this.joystickActive
-        ? this.joystickVector.x
-        : this.facing === 'right'
-          ? 1
-          : -1
-      const dirY = this.joystickActive ? this.joystickVector.y : 0
+      const dirX = this.castDirX
+      const dirY = this.castDirY
 
-      // Fire the spell locally
+      // Fire the spell locally — isLocal=true enables hit detection
       this.spellManager.castSpell(
         result.name,
         this.player.x,
         this.player.y,
         dirX,
-        dirY
+        dirY,
+        true
       )
 
       // Broadcast to other players

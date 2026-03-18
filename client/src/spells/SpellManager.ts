@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
 
-const SPELL_COLOURS: Record<string, number> = {
+export const SPELL_COLOURS: Record<string, number> = {
   Fireball: 0xff6600,
   FrostBolt: 0x66ccff,
   Wall: 0xaaaaaa,
@@ -28,20 +28,38 @@ const PROJECTILE_SPELLS = new Set([
 
 const AREA_SPELLS = new Set(['PoisonCloud', 'Inferno', 'Wall'])
 
+// Travel time in ms — must match server expectation
+const PROJECTILE_DURATION = 1500
+const PROJECTILE_DIST = 600
+
+type HitCallback = (spell: string, hitX: number, hitY: number) => void
+
 export class SpellManager {
   private scene: Phaser.Scene
+  private onHitDetected: HitCallback | null = null
+
+  // Reference to other players for hit detection — set from GameScene
+  private otherPlayers: Map<string, Phaser.GameObjects.Arc> = new Map()
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene
   }
 
-  // dirX/dirY is a normalised direction vector — defaults to facing right
+  setOtherPlayers(players: Map<string, Phaser.GameObjects.Arc>) {
+    this.otherPlayers = players
+  }
+
+  setHitCallback(cb: HitCallback) {
+    this.onHitDetected = cb
+  }
+
   castSpell(
     spell: string,
     x: number,
     y: number,
     dirX: number = 1,
-    dirY: number = 0
+    dirY: number = 0,
+    isLocal: boolean = false
   ) {
     const colour = SPELL_COLOURS[spell] ?? 0xffffff
 
@@ -50,9 +68,9 @@ export class SpellManager {
     } else if (spell === 'Teleport') {
       this.spawnTeleportFlash(x, y, colour)
     } else if (PROJECTILE_SPELLS.has(spell)) {
-      this.spawnProjectile(x, y, dirX, dirY, colour)
+      this.spawnProjectile(x, y, dirX, dirY, colour, spell, isLocal)
     } else if (AREA_SPELLS.has(spell)) {
-      this.spawnAreaEffect(x, y, colour)
+      this.spawnAreaEffect(x, y, colour, spell, isLocal)
     }
   }
 
@@ -61,26 +79,64 @@ export class SpellManager {
     y: number,
     dirX: number,
     dirY: number,
-    colour: number
+    colour: number,
+    spell: string,
+    isLocal: boolean
   ) {
-    const dist = 600
-    const duration = 1500
+    const endX = x + dirX * PROJECTILE_DIST
+    const endY = y + dirY * PROJECTILE_DIST
 
     const circle = this.scene.add.circle(x, y, 10, colour).setDepth(10)
 
     this.scene.tweens.add({
       targets: circle,
-      x: x + dirX * dist,
-      y: y + dirY * dist,
+      x: endX,
+      y: endY,
       alpha: 0,
-      duration,
+      duration: PROJECTILE_DURATION,
       ease: 'Linear',
+      onUpdate: () => {
+        if (!isLocal) return
+        this.checkProjectileHit(spell, circle.x, circle.y)
+      },
       onComplete: () => circle.destroy(),
     })
   }
 
-  private spawnAreaEffect(x: number, y: number, colour: number) {
+  private checkProjectileHit(spell: string, projX: number, projY: number) {
+    const HIT_RADIUS = 40
+    for (const [id, sprite] of this.otherPlayers) {
+      const dx = sprite.x - projX
+      const dy = sprite.y - projY
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      if (dist < HIT_RADIUS) {
+        this.onHitDetected?.(spell, projX, projY)
+        // Remove from map temporarily to prevent multi-hit
+        this.otherPlayers.delete(id)
+        // Restore after 1s
+        this.scene.time.delayedCall(1000, () => {
+          this.otherPlayers.set(id, sprite)
+        })
+        return
+      }
+    }
+  }
+
+  private spawnAreaEffect(
+    x: number,
+    y: number,
+    colour: number,
+    spell: string,
+    isLocal: boolean
+  ) {
     const circle = this.scene.add.circle(x, y, 10, colour, 0.7).setDepth(10)
+
+    // Check hit at cast point for area spells
+    if (isLocal) {
+      this.scene.time.delayedCall(200, () => {
+        this.checkProjectileHit(spell, x, y)
+      })
+    }
 
     this.scene.tweens.add({
       targets: circle,
@@ -119,6 +175,35 @@ export class SpellManager {
       duration: 500,
       ease: 'Cubic.Out',
       onComplete: () => flash.destroy(),
+    })
+  }
+
+  // Spawn floating damage number at world position
+  spawnDamageNumber(
+    x: number,
+    y: number,
+    damage: number,
+    isLocalPlayer: boolean
+  ) {
+    const colour = isLocalPlayer ? '#ff4444' : '#ffffff'
+    const text = this.scene.add
+      .text(x, y - 20, `-${damage}`, {
+        fontSize: '20px',
+        color: colour,
+        fontStyle: 'bold',
+        stroke: '#000000',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5)
+      .setDepth(30)
+
+    this.scene.tweens.add({
+      targets: text,
+      y: y - 70,
+      alpha: 0,
+      duration: 1000,
+      ease: 'Cubic.Out',
+      onComplete: () => text.destroy(),
     })
   }
 }

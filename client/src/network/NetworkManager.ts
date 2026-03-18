@@ -72,6 +72,16 @@ export class NetworkManager {
     })
   }
 
+  sendHit(spell: string, targetId: string, hitX: number, hitY: number) {
+    this.send({
+      type: 'spellHit',
+      spell,
+      targetId,
+      hitX: Math.round(hitX),
+      hitY: Math.round(hitY),
+    })
+  }
+
   // Call this every frame from GameScene.update()
   // Only actually sends if 50ms have passed since last send
   sendMove(x: number, y: number, facing: string) {
